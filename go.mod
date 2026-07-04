@@ -1,4 +1,4 @@
-module git.internal/mjohnson/internal-oidc
+module github.com/kilo666mj/oidcrp
 
 go 1.25.0
 

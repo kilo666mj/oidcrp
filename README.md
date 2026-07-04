@@ -1,7 +1,10 @@
-# internal-oidc
+# oidcrp
 
-Shared OpenID Connect relying-party helper for internal Go apps that authenticate
-humans through Pocket ID.
+`import "github.com/kilo666mj/oidcrp"`
+
+A small OpenID Connect **relying-party** helper for Go web apps that authenticate
+humans through an OIDC provider (e.g. Pocket ID). It handles the browser-facing
+half of the flow and leaves session storage to the app.
 
 The package owns:
 
@@ -15,7 +18,7 @@ The package owns:
 Apps still own local sessions by implementing `SessionManager`.
 
 ```go
-auth := internaloidc.New(internaloidc.Config{
+auth := oidcrp.New(oidcrp.Config{
     Issuer:          cfg.OIDC.Issuer,
     ClientID:        cfg.OIDC.ClientID,
     ClientSecret:    cfg.OIDC.ClientSecret,
@@ -23,7 +26,7 @@ auth := internaloidc.New(internaloidc.Config{
     Scopes:          cfg.OIDC.Scopes,
     AllowedEmails:   cfg.OIDC.AllowedEmails,
     AllowedGroups:   cfg.OIDC.AllowedGroups,
-    StateCookieName: "fleetglass_oidc",
+    StateCookieName: "myapp_oidc",
     LoginPath:       "/login",
     SuccessPath:     "/",
     APIPrefixes:     []string{"/api/"},
@@ -39,7 +42,11 @@ mux.HandleFunc("GET /", auth.Require(app.index))
 ```go
 type SessionManager interface {
     Valid(r *http.Request) bool
-    Issue(w http.ResponseWriter, r *http.Request, identity internaloidc.Identity) error
+    Issue(w http.ResponseWriter, r *http.Request, identity oidcrp.Identity) error
     Clear(w http.ResponseWriter, r *http.Request)
 }
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

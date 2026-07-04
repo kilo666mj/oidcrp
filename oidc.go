@@ -1,4 +1,4 @@
-package internaloidc
+package oidcrp
 
 import (
 	"context"
