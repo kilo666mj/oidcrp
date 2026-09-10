@@ -44,6 +44,13 @@ type Config struct {
 	SuccessPath     string
 	APIPrefixes     []string
 
+	// DesktopHandoffParam enables an external-browser login handoff for native
+	// shells. The value is carried inside the OIDC state cookie and delivered
+	// to DesktopSessionManager after the identity has been verified.
+	DesktopHandoffParam    string
+	DesktopSuccessPath     string
+	ValidateDesktopHandoff func(string) bool
+
 	HTTPClient *http.Client
 	Logger     *log.Logger
 }
@@ -62,6 +69,14 @@ type SessionManager interface {
 	Clear(w http.ResponseWriter, r *http.Request)
 }
 
+// DesktopSessionManager is an optional SessionManager extension for native
+// apps that authenticate in the system browser. IssueDesktop must bind the
+// verified identity to the opaque, one-time handoff without exposing a session
+// credential to the browser that completed the OIDC flow.
+type DesktopSessionManager interface {
+	IssueDesktop(w http.ResponseWriter, r *http.Request, identity Identity, handoff string) error
+}
+
 // Service owns the browser OIDC flow and delegates durable sessions to the app.
 type Service struct {
 	cfg      Config
@@ -75,9 +90,10 @@ type Service struct {
 }
 
 type pendingAuth struct {
-	State    string `json:"s"`
-	Nonce    string `json:"n"`
-	Verifier string `json:"v"`
+	State          string `json:"s"`
+	Nonce          string `json:"n"`
+	Verifier       string `json:"v"`
+	DesktopHandoff string `json:"d,omitempty"`
 }
 
 // New returns an OIDC service. The service is disabled until issuer, client ID,
@@ -112,6 +128,9 @@ func (c *Config) normalize() {
 	}
 	if strings.TrimSpace(c.SuccessPath) == "" {
 		c.SuccessPath = defaultSuccessPath
+	}
+	if strings.TrimSpace(c.DesktopHandoffParam) != "" && strings.TrimSpace(c.DesktopSuccessPath) == "" {
+		c.DesktopSuccessPath = c.SuccessPath
 	}
 }
 
@@ -160,7 +179,12 @@ func (s *Service) LoginStart(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if s.sessions != nil && s.sessions.Valid(r) {
+	handoff, err := s.desktopHandoff(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if handoff == "" && s.sessions != nil && s.sessions.Valid(r) {
 		http.Redirect(w, r, s.cfg.SuccessPath, http.StatusFound)
 		return
 	}
@@ -172,7 +196,7 @@ func (s *Service) LoginStart(w http.ResponseWriter, r *http.Request) {
 	state := randToken()
 	nonce := randToken()
 	verifier := oauth2.GenerateVerifier()
-	s.setPendingCookie(w, pendingAuth{State: state, Nonce: nonce, Verifier: verifier})
+	s.setPendingCookie(w, pendingAuth{State: state, Nonce: nonce, Verifier: verifier, DesktopHandoff: handoff})
 	authURL := s.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -248,12 +272,47 @@ func (s *Service) Callback(w http.ResponseWriter, r *http.Request) {
 		s.redirectLoginError(w, r, "your account is not permitted to sign in")
 		return
 	}
-	if err := s.sessions.Issue(w, r, identity); err != nil {
+	if err := s.issueVerifiedIdentity(w, r, identity, pending); err != nil {
 		s.logf("oidc: issue session: %v", err)
 		s.redirectLoginError(w, r, "sign-in failed, try again")
-		return
+	}
+}
+
+func (s *Service) issueVerifiedIdentity(w http.ResponseWriter, r *http.Request, identity Identity, pending pendingAuth) error {
+	if pending.DesktopHandoff != "" {
+		desktop, ok := s.sessions.(DesktopSessionManager)
+		if !ok {
+			return fmt.Errorf("desktop handoff requested without DesktopSessionManager")
+		}
+		if err := desktop.IssueDesktop(w, r, identity, pending.DesktopHandoff); err != nil {
+			return fmt.Errorf("issue desktop handoff: %w", err)
+		}
+		http.Redirect(w, r, s.cfg.DesktopSuccessPath, http.StatusFound)
+		return nil
+	}
+	if err := s.sessions.Issue(w, r, identity); err != nil {
+		return fmt.Errorf("issue browser session: %w", err)
 	}
 	http.Redirect(w, r, s.cfg.SuccessPath, http.StatusFound)
+	return nil
+}
+
+func (s *Service) desktopHandoff(r *http.Request) (string, error) {
+	parameter := strings.TrimSpace(s.cfg.DesktopHandoffParam)
+	if parameter == "" {
+		return "", nil
+	}
+	handoff := strings.TrimSpace(r.URL.Query().Get(parameter))
+	if handoff == "" {
+		return "", nil
+	}
+	if s.cfg.ValidateDesktopHandoff == nil || !s.cfg.ValidateDesktopHandoff(handoff) {
+		return "", fmt.Errorf("invalid desktop sign-in handoff")
+	}
+	if _, ok := s.sessions.(DesktopSessionManager); !ok {
+		return "", fmt.Errorf("desktop sign-in is not configured")
+	}
+	return handoff, nil
 }
 
 // Logout clears the app's local session.

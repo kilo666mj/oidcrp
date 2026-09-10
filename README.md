@@ -17,6 +17,12 @@ The package owns:
 
 Apps still own local sessions by implementing `SessionManager`.
 
+Native shells can keep credentials out of an embedded webview by enabling a
+desktop handoff. The shell generates an opaque one-time value and opens the
+ordinary login URL in the system browser. After verifying the OIDC response,
+`oidcrp` passes that value and the identity to `DesktopSessionManager`; the app
+then exposes its own same-origin, single-use session exchange endpoint.
+
 ```go
 auth := oidcrp.New(oidcrp.Config{
     Issuer:          cfg.OIDC.Issuer,
@@ -36,6 +42,26 @@ auth.Register(mux)
 mux.HandleFunc("POST /api/auth/logout", auth.Logout)
 mux.HandleFunc("GET /", auth.Require(app.index))
 ```
+
+For a desktop handoff, add these fields and implement the optional interface:
+
+```go
+auth := oidcrp.New(oidcrp.Config{
+    // ordinary OIDC fields omitted
+    DesktopHandoffParam:    "desktop",
+    DesktopSuccessPath:     "/auth/desktop/complete",
+    ValidateDesktopHandoff: validOneTimeCode,
+}, sessions)
+
+func (s *sessions) IssueDesktop(w http.ResponseWriter, r *http.Request,
+    identity oidcrp.Identity, handoff string) error {
+    return s.storePendingIdentity(r.Context(), handoff, identity)
+}
+```
+
+The handoff is not a session token. It should be high entropy, expire quickly,
+be consumed atomically, and be rotated into a normal HttpOnly application
+session by the native webview.
 
 `SessionManager` is intentionally small:
 

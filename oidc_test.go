@@ -8,9 +8,17 @@ import (
 )
 
 type memorySessions struct {
-	valid  bool
-	issued *Identity
-	clear  bool
+	valid          bool
+	issued         *Identity
+	desktopIssued  *Identity
+	desktopHandoff string
+	clear          bool
+}
+
+func (m *memorySessions) IssueDesktop(_ http.ResponseWriter, _ *http.Request, identity Identity, handoff string) error {
+	m.desktopIssued = &identity
+	m.desktopHandoff = handoff
+	return nil
 }
 
 func (m *memorySessions) Valid(*http.Request) bool {
@@ -126,3 +134,65 @@ func TestRedirectLoginErrorEscapesMessage(t *testing.T) {
 		t.Fatalf("status=%d Location=%q", rec.Code, location)
 	}
 }
+
+func TestDesktopHandoffValidation(t *testing.T) {
+	sessions := &memorySessions{valid: true}
+	auth := New(Config{
+		DesktopHandoffParam: "desktop",
+		ValidateDesktopHandoff: func(value string) bool {
+			return value == "valid-handoff"
+		},
+	}, sessions)
+
+	ordinary := httptest.NewRequest(http.MethodGet, "/api/auth/login/start", nil)
+	if value, err := auth.desktopHandoff(ordinary); err != nil || value != "" {
+		t.Fatalf("ordinary handoff = %q, %v", value, err)
+	}
+	valid := httptest.NewRequest(http.MethodGet, "/api/auth/login/start?desktop=valid-handoff", nil)
+	if value, err := auth.desktopHandoff(valid); err != nil || value != "valid-handoff" {
+		t.Fatalf("valid handoff = %q, %v", value, err)
+	}
+	invalid := httptest.NewRequest(http.MethodGet, "/api/auth/login/start?desktop=invalid", nil)
+	if _, err := auth.desktopHandoff(invalid); err == nil {
+		t.Fatal("invalid desktop handoff was accepted")
+	}
+}
+
+type browserOnlySessions struct{ memorySessions }
+
+func TestDesktopHandoffRequiresDesktopSessionManager(t *testing.T) {
+	var sessions SessionManager = &browserOnlySessionManager{}
+	auth := New(Config{DesktopHandoffParam: "desktop", ValidateDesktopHandoff: func(string) bool { return true }}, sessions)
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/login/start?desktop=value", nil)
+	if _, err := auth.desktopHandoff(request); err == nil {
+		t.Fatal("desktop handoff was accepted without DesktopSessionManager")
+	}
+}
+
+func TestVerifiedIdentityUsesDesktopSessionManager(t *testing.T) {
+	sessions := &memorySessions{}
+	auth := New(Config{SuccessPath: "/", DesktopHandoffParam: "desktop", DesktopSuccessPath: "/desktop/complete", ValidateDesktopHandoff: func(string) bool { return true }}, sessions)
+	identity := Identity{Subject: "subject-1", Email: "person@example.com"}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/callback", nil)
+	if err := auth.issueVerifiedIdentity(response, request, identity, pendingAuth{DesktopHandoff: "handoff"}); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.desktopIssued == nil || sessions.desktopIssued.Subject != identity.Subject || sessions.desktopHandoff != "handoff" {
+		t.Fatalf("desktop issue = %+v, %q", sessions.desktopIssued, sessions.desktopHandoff)
+	}
+	if sessions.issued != nil {
+		t.Fatal("ordinary browser session was issued during desktop handoff")
+	}
+	if got := response.Header().Get("Location"); got != "/desktop/complete" {
+		t.Fatalf("Location = %q", got)
+	}
+}
+
+type browserOnlySessionManager struct{}
+
+func (*browserOnlySessionManager) Valid(*http.Request) bool { return false }
+func (*browserOnlySessionManager) Issue(http.ResponseWriter, *http.Request, Identity) error {
+	return nil
+}
+func (*browserOnlySessionManager) Clear(http.ResponseWriter, *http.Request) {}
