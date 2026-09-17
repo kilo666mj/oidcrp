@@ -62,6 +62,34 @@ type Identity struct {
 	Groups  []string
 }
 
+// DesktopConfirmation contains the browser-only secret and human-readable code
+// required to approve a native desktop handoff. Applications must store only a
+// hash of BrowserSecret, deliver the raw value in a Secure, HttpOnly,
+// SameSite=Strict cookie, and keep the handoff unexchangeable until that cookie
+// is explicitly confirmed by the authenticated browser.
+type DesktopConfirmation struct {
+	BrowserSecret    string
+	VerificationCode string
+}
+
+// NewDesktopConfirmation creates approval material independent from the
+// attacker-visible handoff. The desktop app can derive the same verification
+// code from its handoff, while only the authenticated browser receives the
+// random approval secret.
+func NewDesktopConfirmation(handoff string) (DesktopConfirmation, error) {
+	if len(handoff) < 8 {
+		return DesktopConfirmation{}, fmt.Errorf("desktop handoff must contain at least 8 characters")
+	}
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return DesktopConfirmation{}, fmt.Errorf("generate desktop confirmation: %w", err)
+	}
+	return DesktopConfirmation{
+		BrowserSecret:    base64.RawURLEncoding.EncodeToString(secret),
+		VerificationCode: strings.ToUpper(handoff[:4] + "-" + handoff[4:8]),
+	}, nil
+}
+
 // SessionManager is implemented by each app's local session store.
 type SessionManager interface {
 	Valid(r *http.Request) bool
@@ -70,9 +98,11 @@ type SessionManager interface {
 }
 
 // DesktopSessionManager is an optional SessionManager extension for native
-// apps that authenticate in the system browser. IssueDesktop must bind the
-// verified identity to the opaque, one-time handoff without exposing a session
-// credential to the browser that completed the OIDC flow.
+// apps that authenticate in the system browser. IssueDesktop must begin a
+// pending login that is not exchangeable yet. It must require explicit approval
+// from the authenticated browser using an independent secret, such as one from
+// NewDesktopConfirmation. Treating handoff alone as sufficient to mint a session
+// permits login-link phishing and account-session theft.
 type DesktopSessionManager interface {
 	IssueDesktop(w http.ResponseWriter, r *http.Request, identity Identity, handoff string) error
 }
