@@ -65,13 +65,32 @@ auth := oidcrp.New(oidcrp.Config{
 
 func (s *sessions) IssueDesktop(w http.ResponseWriter, r *http.Request,
     identity oidcrp.Identity, handoff string) error {
-    return s.storePendingIdentity(r.Context(), handoff, identity)
+    confirmation, err := oidcrp.NewDesktopConfirmation(handoff)
+    if err != nil {
+        return err
+    }
+    confirmationHash := sha256.Sum256([]byte(confirmation.BrowserSecret))
+    if err := s.storePendingIdentity(r.Context(), handoff, identity,
+        confirmationHash[:], confirmation.VerificationCode); err != nil {
+        return err
+    }
+    setSecureHTTPOnlyConfirmationCookie(w, confirmation.BrowserSecret)
+    return nil
 }
 ```
 
-The handoff is not a session token. It should be high entropy, expire quickly,
-be consumed atomically, and be rotated into a normal HttpOnly application
-session by the native webview.
+The handoff is attacker-controlled input because anyone can construct a login
+start URL containing one. It must be high entropy, expire quickly, and be
+consumed atomically, but those properties alone are not sufficient. The app
+must keep the handoff unexchangeable until the authenticated browser explicitly
+approves it using the independent browser secret. Show
+`DesktopConfirmation.VerificationCode` in the browser and derive the same code
+from the handoff in the desktop app so the user can compare them. Offer a cancel
+action, and never accept the handoff itself as the browser confirmation secret.
+
+After approval, atomically rotate the handoff into a normal HttpOnly application
+session for the native webview. Without this confirmation step, a phishing link
+can bind a victim's verified identity to an attacker's handoff.
 
 `SessionManager` is intentionally small:
 

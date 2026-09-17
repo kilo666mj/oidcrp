@@ -56,6 +56,27 @@ func TestNewNormalizesDefaults(t *testing.T) {
 	}
 }
 
+func TestNewDesktopConfirmationSeparatesBrowserSecretFromHandoff(t *testing.T) {
+	handoff := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	first, err := NewDesktopConfirmation(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewDesktopConfirmation(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.VerificationCode != "0123-4567" {
+		t.Fatalf("verification code = %q", first.VerificationCode)
+	}
+	if first.BrowserSecret == "" || first.BrowserSecret == handoff || first.BrowserSecret == second.BrowserSecret {
+		t.Fatalf("browser secrets are not independent: first=%q second=%q", first.BrowserSecret, second.BrowserSecret)
+	}
+	if _, err := NewDesktopConfirmation("short"); err == nil {
+		t.Fatal("short desktop handoff was accepted")
+	}
+}
+
 func TestRequireAllowsWhenDisabled(t *testing.T) {
 	auth := New(Config{}, nil)
 	rec := httptest.NewRecorder()
