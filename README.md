@@ -6,6 +6,16 @@ A small OpenID Connect **relying-party** helper for Go web apps that authenticat
 humans through an OIDC provider (e.g. Pocket ID). It handles the browser-facing
 half of the flow and leaves session storage to the app.
 
+## Install and reference
+
+```sh
+go get github.com/kilo666mj/oidcrp@v0.2.0
+```
+
+`oidcrp` requires Go 1.26.5 or newer. The compatibility lane also tests the
+current Go release. API documentation is available on
+[pkg.go.dev](https://pkg.go.dev/github.com/kilo666mj/oidcrp).
+
 The package owns:
 
 - OIDC discovery.
@@ -72,6 +82,23 @@ type SessionManager interface {
     Clear(w http.ResponseWriter, r *http.Request)
 }
 ```
+
+## Adoption checklist
+
+1. Register an exact HTTPS callback URL with the identity provider.
+2. Implement `SessionManager` with application-owned, HttpOnly sessions and
+   explicit expiry and revocation.
+3. Configure subject, email, or group allowlists when the provider is shared.
+4. Mount the standard routes, protect browser handlers with `Require`, and keep
+   API prefixes on the `401` path rather than browser redirects.
+5. Preserve the request scheme and host through the reverse proxy; test state,
+   nonce, PKCE, callback, logout, and provider-outage behavior.
+6. For native handoffs, make the opaque value high entropy, short-lived, and
+   atomically single-use before exchanging it for an application session.
+
+The package does not own account provisioning, local roles, session storage,
+reverse-proxy trust, or provider availability. Those remain application and
+deployment policy.
 
 ## License
 
