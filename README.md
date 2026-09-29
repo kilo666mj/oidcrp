@@ -1,6 +1,6 @@
 # oidcrp
 
-`import "github.com/kilo666mj/oidcrp"`
+`import "go.michaelspost.com/oidcrp"`
 
 A small OpenID Connect **relying-party** helper for Go web apps that authenticate
 humans through an OIDC provider (e.g. Pocket ID). It handles the browser-facing
@@ -9,12 +9,12 @@ half of the flow and leaves session storage to the app.
 ## Install and reference
 
 ```sh
-go get github.com/kilo666mj/oidcrp@v0.2.0
+go get go.michaelspost.com/oidcrp@v0.3.0
 ```
 
 `oidcrp` requires Go 1.26.5 or newer. The compatibility lane also tests the
 current Go release. API documentation is available on
-[pkg.go.dev](https://pkg.go.dev/github.com/kilo666mj/oidcrp).
+[pkg.go.dev](https://pkg.go.dev/go.michaelspost.com/oidcrp).
 
 The package owns:
 
@@ -122,3 +122,15 @@ deployment policy.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Module path migration
+
+Starting with `v0.3.0`, the canonical module path is
+`go.michaelspost.com/oidcrp`. Update imports (including package subpaths)
+and the requirement in `go.mod` together, then run `go mod tidy` and your tests.
+Do not mix the old and new package paths in one build: Go treats them as
+different package identities. No `replace` directive is needed.
+
+Earlier tags retain `github.com/kilo666mj/oidcrp` and remain available for
+existing consumers pinned to those releases. GitHub remains the source repository;
+the vanity path allows future hosting changes without changing imports again.

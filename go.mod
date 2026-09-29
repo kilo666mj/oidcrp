@@ -1,4 +1,4 @@
-module github.com/kilo666mj/oidcrp
+module go.michaelspost.com/oidcrp
 
 go 1.26.5
 
