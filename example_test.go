@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/kilo666mj/oidcrp"
+	"go.michaelspost.com/oidcrp"
 )
 
 type exampleSessions struct{}
