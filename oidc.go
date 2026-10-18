@@ -59,7 +59,13 @@ type Config struct {
 type Identity struct {
 	Subject string
 	Email   string
-	Groups  []string
+	// EmailVerified reports the provider's email_verified claim. Apps that map
+	// Email to a local account should refuse identities where it is false.
+	EmailVerified bool
+	Groups        []string
+	// Claims holds every claim from the verified ID token, for apps that map
+	// identities by another claim such as preferred_username.
+	Claims map[string]any
 }
 
 // DesktopConfirmation contains the browser-only secret and human-readable code
@@ -287,16 +293,12 @@ func (s *Service) Callback(w http.ResponseWriter, r *http.Request) {
 		s.redirectLoginError(w, r, "invalid sign-in nonce, try again")
 		return
 	}
-	var claims struct {
-		Email  string   `json:"email"`
-		Groups []string `json:"groups"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
+	identity, err := identityFromToken(idToken)
+	if err != nil {
 		s.logf("oidc: decode claims: %v", err)
 		s.redirectLoginError(w, r, "sign-in failed, try again")
 		return
 	}
-	identity := Identity{Subject: idToken.Subject, Email: claims.Email, Groups: claims.Groups}
 	if !s.allowed(identity) {
 		s.logf("oidc: rejected sub=%q email=%q (not in allowlist)", identity.Subject, identity.Email)
 		s.redirectLoginError(w, r, "your account is not permitted to sign in")
@@ -306,6 +308,28 @@ func (s *Service) Callback(w http.ResponseWriter, r *http.Request) {
 		s.logf("oidc: issue session: %v", err)
 		s.redirectLoginError(w, r, "sign-in failed, try again")
 	}
+}
+
+func identityFromToken(idToken *oidc.IDToken) (Identity, error) {
+	var claims struct {
+		Email         string   `json:"email"`
+		EmailVerified bool     `json:"email_verified"`
+		Groups        []string `json:"groups"`
+	}
+	if err := idToken.Claims(&claims); err != nil {
+		return Identity{}, err
+	}
+	all := map[string]any{}
+	if err := idToken.Claims(&all); err != nil {
+		return Identity{}, err
+	}
+	return Identity{
+		Subject:       idToken.Subject,
+		Email:         claims.Email,
+		EmailVerified: claims.EmailVerified,
+		Groups:        claims.Groups,
+		Claims:        all,
+	}, nil
 }
 
 func (s *Service) issueVerifiedIdentity(w http.ResponseWriter, r *http.Request, identity Identity, pending pendingAuth) error {

@@ -9,7 +9,7 @@ half of the flow and leaves session storage to the app.
 ## Install and reference
 
 ```sh
-go get go.michaelspost.com/oidcrp@v0.3.0
+go get go.michaelspost.com/oidcrp@v0.4.0
 ```
 
 `oidcrp` requires Go 1.26.5 or newer. The compatibility lane also tests the
@@ -26,6 +26,12 @@ The package owns:
 - Browser auth middleware decisions.
 
 Apps still own local sessions by implementing `SessionManager`.
+
+`Issue` receives the verified `Identity`: subject, email, the provider's
+`email_verified` flag, groups, and every ID-token claim in `Claims`. Apps that
+map `Email` to a local account should refuse identities whose `EmailVerified`
+is false; apps that map by another claim, such as `preferred_username`, read it
+from `Claims`.
 
 Native shells can keep credentials out of an embedded webview by enabling a
 desktop handoff. The shell generates an opaque one-time value and opens the
